@@ -4,10 +4,12 @@ import sys
 import pathlib
 import math
 import itertools
+import tkinter as tki
+from tkinter import filedialog
 
 homedir = str(pathlib.Path(__file__).parent.absolute())
 WHITE = "#F1F7ED"
-BLACK = "#191726"
+BLACK = "#9B9B97"
 FOCUS = "#97EDD3"
 MOUSEOVER = "#0E9594"
 BLACKCOVER = "#FF0000"
@@ -34,9 +36,11 @@ class Main:
             "b": "w"
         }
         self.rulebook = Rules(self)
-        self.board = Board(screensize[1])
+        # self.board = Board(screensize[1])
         self.white = Player("w")
         self.black = Player("b")
+        self.white.enemy = self.black
+        self.black.enemy = self.white
         self.borw = {
             "w": self.white,
             "b": self.black
@@ -71,8 +75,11 @@ class Main:
             square.occupiedBy = self.pickedPiece
             self.dragMode = False
 
-    def mouseDown(self, coords):
-        tsquare = self.board.squares[coords]
+    def mouseGameControlsDown(self, xy):
+        col = self.ui.maplist[math.floor(xy[0]/self.ui.squaresize)]
+        row = self.ui.maplist[7-math.floor(xy[1]/self.ui.squaresize)]
+        coords = (col,row)
+        tsquare = self.memory.board[coords]
         # if square is not in legal moves: unfocus
         if tsquare.occupiedBy and tsquare.occupiedBy.color == self.activeColor:
             # 0. set focus
@@ -93,8 +100,11 @@ class Main:
             else:
                 self.setFocus(self.osquare, False)
 
-    def mouseUp(self, coords):
-        tsquare = self.board.squares[coords]
+    def mouseGameControlsUp(self, xy):
+        col = self.ui.maplist[math.floor(xy[0]/self.ui.squaresize)]
+        row = self.ui.maplist[7-math.floor(xy[1]/self.ui.squaresize)]
+        coords = (col, row)
+        tsquare = self.memory.board[coords]
 
         if self.dragMode:
             if coords in self.legalMoves:
@@ -104,6 +114,20 @@ class Main:
             else:
                 self.movePiece(self.osquare, False)   
 
+    def mouseSidebarControls(self,xy):
+        x = xy[0] - self.ui.screensize[1]
+        y = xy[1]
+
+        # checking if a button is clicked:
+        if self.ui.loadBtn.x <= x <= self.ui.loadBtn.dx and self.ui.loadBtn.y <= y <= self.ui.loadBtn.dy:
+            self.memory.loadGame()
+        elif self.ui.bwBtn.x <= x <= self.ui.bwBtn.dx and self.ui.bwBtn.y <= y <= self.ui.bwBtn.dy:
+            self.memory.readFromMemory(self.movecounter-1)
+        elif self.ui.fwBtn.x <= x <= self.ui.fwBtn.dx and self.ui.fwBtn.y <= y <= self.ui.fwBtn.dy:
+            self.memory.readFromMemory(self.movecounter+1)
+        elif self.ui.saveBtn.x <= x <= self.ui.saveBtn.dx and self.ui.saveBtn.y <= y <= self.ui.saveBtn.dy:
+            self.memory.saveGame()
+
     def checkSpecialRules(self,coords):
 
         # checking castle rules
@@ -111,18 +135,18 @@ class Main:
         if castle["q"] or castle["k"]:
             if self.pickedPiece.type == "k":
                 if coords == (6,0) and castle["k"]:
-                    self.board.squares[(5, 0)].occupiedBy = self.white.initPieces["r"]
-                    self.board.squares[(7,0)].occupiedBy = None
+                    self.memory.board[(5, 0)].occupiedBy = self.white.initPieces["r"]
+                    self.memory.board[(7, 0)].occupiedBy = None
                 elif coords == (2,0) and castle["q"]:
-                    self.board.squares[(3, 0)].occupiedBy = self.white.initPieces["r"]
-                    self.board.squares[(0,0)].occupiedBy = None
+                    self.memory.board[(3, 0)].occupiedBy = self.white.initPieces["r"]
+                    self.memory.board[(0, 0)].occupiedBy = None
 
                 elif coords == (6,7) and castle["k"]:
-                    self.board.squares[(5, 7)].occupiedBy = self.black.initPieces["r"]
-                    self.board.squares[(7,7)].occupiedBy = None
+                    self.memory.board[(5, 7)].occupiedBy = self.black.initPieces["r"]
+                    self.memory.board[(7, 7)].occupiedBy = None
                 elif coords == (2,7) and castle["q"]:
-                    self.board.squares[(3, 7)].occupiedBy = self.black.initPieces["r"]
-                    self.board.squares[(0,7)].occupiedBy = None
+                    self.memory.board[(3, 7)].occupiedBy = self.black.initPieces["r"]
+                    self.memory.board[(0, 7)].occupiedBy = None
                 castle["q"] = False
                 castle["k"] = False
 
@@ -150,9 +174,9 @@ class Main:
 
         if self.pickedPiece.type == "p" and coords == self.memory.enpassant:
             if coords[1] == 2:
-                self.board.squares[(coords[0],3)].occupiedBy = None
+                self.memory.board[(coords[0], 3)].occupiedBy = None
             elif coords[1] == 5:
-                self.board.squares[(coords[0], 4)].occupiedBy = None
+                self.memory.board[(coords[0], 4)].occupiedBy = None
 
         if self.pickedPiece.type == "p" and coords[1] == 3 and self.osquare.id[1] == 1:
             self.memory.enpassant = (coords[0],2)
@@ -163,7 +187,7 @@ class Main:
 
         #checking fiftyrule
 
-        if self.pickedPiece.type == "p" or self.board.squares[coords].occupiedBy:
+        if self.pickedPiece.type == "p" or self.memory.board[coords].occupiedBy:
             self.memory.fiftyrule = 0
         else:
             self.memory.fiftyrule += 1
@@ -180,63 +204,57 @@ class Main:
     def updateLegalMovelist(self):
         self.white.check = False
         self.black.check = False
-        for key, square in self.board.squares.items():
+        for key, square in self.memory.board.items():
             square.covered["b"] = False
             square.covered["w"] = False
                     
-        for key,square in self.board.squares.items():
+        for key, square in self.memory.board.items():
                 coverlist = self.rulebook.getMoves( square, "cover")
                 if square.occupiedBy:
                     color = square.occupiedBy.color
                     for squareID in coverlist:
-                        self.board.squares[squareID].covered[color] = True
-                        if self.board.squares[squareID].occupiedBy == self.borw[self.swtichColor[color]].initPieces["k"]:
+                        self.memory.board[squareID].covered[color] = True
+                        if self.memory.board[squareID].occupiedBy == self.borw[self.swtichColor[color]].initPieces["k"]:
                             self.borw[self.swtichColor[color]].check = True
                             print("check!")
 
-
-        for key,square in self.board.squares.items():
+        for key, square in self.memory.board.items():
             self.legalMovelist[key] = self.rulebook.getMoves(
                     square,"moves")
 
     def mainloop(self):
         while True:
-
+            if self.dragMode and any([x > self.ui.boardsize-6 for x in pg.mouse.get_pos()]):
+                self.movePiece(self.osquare,False)
             for event in pg.event.get():
                 if event.type == pg.QUIT:
                     pg.quit()
                     sys.exit()
                 if event.type == pg.KEYDOWN:
                     if event.key == pg.K_SPACE:
-                        self.board.flip()
+                        self.ui.flip()
                     elif event.key == pg.K_RIGHT:
                         self.memory.readFromMemory(self.movecounter+1)
                     elif event.key == pg.K_LEFT:
                         self.memory.readFromMemory(self.movecounter-1)
-                    elif pg.key.name(event.key) == "s":
-                        self.memory.saveGame(self.memory.gameID)
-                    elif pg.key.name(event.key) == "l":
-                        filename = input("Name of the savegame: ")
-                        self.memory.loadGame(filename)
                     elif pg.key.name(event.key) == "r":
                         self.memory.gameID = input("New GameID: ")
+                    elif pg.key.name(event.key) == "c":
+                        self.ui.displaycover = not self.ui.displaycover
 
-                elif event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP):
-                    x, y = event.pos
-                    if all(0 <= x <= self.board.size for x in [x, y]):
-                        col = math.floor(x/self.board.squaresize)
-                        row = (7-math.floor(y/self.board.squaresize))
-                        col = self.board.maplist[col]
-                        row = self.board.maplist[row]
-
-                        if event.type == pg.MOUSEBUTTONDOWN:
-                            self.mouseDown((col, row))
-                        else:
-                            self.mouseUp((col, row))
+                elif event.type == pg.MOUSEBUTTONDOWN:
+                    if all(0 < x < self.ui.boardsize-5 for x in event.pos):
+                            self.mouseGameControlsDown(event.pos)
+        
+                    elif (self.ui.boardsize < event.pos[0] < self.ui.screensize[0]):
+                        self.mouseSidebarControls(event.pos)
+                
+                elif event.type == pg.MOUSEBUTTONUP:
+                    if all(0 < x < self.ui.boardsize-5 for x in event.pos):
+                            self.mouseGameControlsUp(event.pos)
 
             self.ui.update()
             self.clock.tick(30)
-
 
 class Rules:
     def __init__(self,brain):
@@ -255,7 +273,7 @@ class Rules:
 
         movelist = []
         origin = square.id
-        squares = self.brain.board.squares
+        squares = self.brain.memory.board
         piece = square.occupiedBy
 
         if not piece:
@@ -313,8 +331,8 @@ class Rules:
                 if (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
                     currentsquare = squares[index]
                     if currentsquare.covered[enemy]:
+                        pass
                         #case: square is covered by enemy
-                        print("covered!")
                     elif not currentsquare.occupiedBy:
                         #case: free
                         movelist.append(index)
@@ -432,18 +450,66 @@ class Rules:
 class UI:
     def __init__(self,brain,window_size):
         self.brain = brain
+        self.screensize = window_size
+        self.displaycover = False
 
-        self.displaycover = True
         pg.font.init()
         self.myfont = pg.font.SysFont('Arial', 20)
 
 
 
         pg.display.set_caption("OpenChess")
-        self.screen = pg.display.set_mode(window_size, 0, 32)
+        self.screen = pg.display.set_mode(self.screensize, 0, 32)
+        self.initBoardUI()
+        self.initSidebar()
         self.initImages()
 
+    def initBoardUI(self):
+        self.indexsize = 50
+        self.boardsize = min(self.screensize)-self.indexsize
+        self.maplist = list(range(8))
+        self.COLORDICT = {
+            True: WHITE,
+            False: BLACK
+        }
+        self.squaresize = math.floor((self.boardsize)/8)
+        self.squarecoords = {}
+        for i in range(8):
+            for j in range(8):
+                self.squarecoords[i,j] = (i*self.squaresize,(7-j)*self.squaresize)
         
+        self.rowindex = []
+        self.colindex = []
+        for i in range(8):
+            self.colindex.append(
+                ((i+.5)*self.squaresize, 8*self.squaresize+.5*self.indexsize))
+            self.rowindex.append(
+                (8*self.squaresize+.5*self.indexsize, (7.5-i)*self.squaresize))
+        
+    def initSidebar(self):
+        self.sidebarwidth = self.screensize[0]-self.screensize[1]
+        self.btnsize = 50
+        self.padding = math.floor((self.sidebarwidth-4*self.btnsize)/(4+1))
+
+        saveIcon = pg.image.load(homedir+f"/images/save-icon.png")
+        saveIcon = pg.transform.scale(
+            saveIcon, (self.btnsize, self.btnsize))
+        loadIcon = pg.image.load(homedir+f"/images/load-icon.png")
+        loadIcon = pg.transform.scale(
+            loadIcon, (self.btnsize, self.btnsize))
+        fwIcon = pg.image.load(homedir+f"/images/fw-icon.png")
+        fwIcon = pg.transform.scale(
+            fwIcon, (self.btnsize, self.btnsize))
+        bwIcon = pg.image.load(homedir+f"/images/bw-icon.png")
+        bwIcon = pg.transform.scale(
+            bwIcon, (self.btnsize, self.btnsize))
+
+        self.loadBtn = Button(self.padding,self.padding,self.btnsize,self.btnsize,loadIcon)
+        self.bwBtn = Button(2*self.padding+self.btnsize, self.padding, self.btnsize, self.btnsize, bwIcon)
+        self.fwBtn = Button(3*self.padding+2*self.btnsize, self.padding, self.btnsize, self.btnsize, fwIcon)
+        self.saveBtn = Button(4*self.padding+3*self.btnsize, self.padding, self.btnsize, self.btnsize,saveIcon)
+
+        self.buttonlist = [self.loadBtn, self.bwBtn,self.fwBtn,self.saveBtn]
 
     def initImages(self):
 
@@ -452,23 +518,26 @@ class UI:
             name = "".join(piece)
             image = pg.image.load(homedir+f"/images/{name}.png")
             image = pg.transform.scale(
-                image, (self.brain.board.squaresize, self.brain.board.squaresize))
+                image, (self.squaresize, self.squaresize))
             self.images[name] = image
+        
 
         moveicon = pg.image.load(homedir+f"/images/moveicon.png")
         self.images["moveicon"] = pg.transform.scale(
-            moveicon, (self.brain.board.squaresize, self.brain.board.squaresize))
+            moveicon, (self.squaresize, self.squaresize))
         moveiconHL = pg.image.load(homedir+f"/images/moveiconHL.png")
         self.images["moveiconHL"] = pg.transform.scale(
-            moveiconHL, (self.brain.board.squaresize, self.brain.board.squaresize))
+            moveiconHL, (self.squaresize, self.squaresize))
+        
 
     def drawBoard(self):
-        board = self.brain.board
-        pg.draw.rect(self.screen, BLACK, (0, 0, board.size +
-                                     board.indexsize, board.size+board.indexsize))
+        board = self.brain.memory.board
+        pg.draw.rect(self.screen, BLACK, (0, 0)+self.screensize)
 
-        for key, square in board.squares.items():
-            color = square.color
+        for key, square in board.items():
+            # color = square.color
+            color = self.COLORDICT[(key[0]+key[1])%2==1]
+
             if square.covered["w"] and square.covered["b"] and self.displaycover:
                 # print(key)
                 color = BOTHCOVER
@@ -482,16 +551,36 @@ class UI:
                 color = FOCUS
                 
             pg.draw.rect(self.screen, color, pg.Rect(
-                square.coords, (board.squaresize, board.squaresize)))
+                self.squarecoords[key], (self.squaresize, self.squaresize)))
             if square.occupiedBy:
-                self.screen.blit(self.images[square.occupiedBy.imagecode], square.coords)
+                self.screen.blit(self.images[square.occupiedBy.imagecode], self.squarecoords[key])
 
         for i in range(8):
             text = self.myfont.render(chr(97+i), False, WHITE)
-            self.screen.blit(text, text.get_rect(center=(board.colindex[i])))
+            self.screen.blit(text, text.get_rect(center=(self.colindex[i])))
 
             text = self.myfont.render(str(i+1), False, WHITE)
-            self.screen.blit(text, text.get_rect(center=(board.rowindex[i])))
+            self.screen.blit(text, text.get_rect(center=(self.rowindex[i])))
+    
+    def flip(self):
+        self.colindex.reverse()
+        self.rowindex.reverse()
+        self.maplist.reverse()
+        for row in range(8):
+            for index in range(4):
+                x1 = self.maplist[index]
+                x2 = self.maplist[-index-1]
+
+                self.squarecoords[(x1, row)], self.squarecoords[(x2, row)] = self.squarecoords[(
+                    x2, row)], self.squarecoords[(x1, row)]
+
+        for col in range(8):
+            for index in range(4):
+                y1 = self.maplist[index]
+                y2 = self.maplist[-index-1]
+
+                self.squarecoords[(col, y1)], self.squarecoords[(col, y2)] = self.squarecoords[(
+                    col, y2)], self.squarecoords[(col, y1)]
 
     def drawDynamicPieces(self): 
         if self.brain.pickedPiece and self.brain.dragMode:
@@ -502,51 +591,89 @@ class UI:
     
     def drawLegalMoves(self):
         for index in self.brain.legalMoves:
-            x = self.brain.board.squares[index].coords[0]
-            y = self.brain.board.squares[index].coords[1]
+            x = self.squarecoords[index][0]
+            y = self.squarecoords[index][1]
             
             moveicon = self.images["moveicon"]
             mousex,mousey = pg.mouse.get_pos()
-            if all(0 <= x <= self.brain.board.size for x in [mousex, mousey]):
-                col = math.floor(mousex/self.brain.board.squaresize)
-                row = 7 - math.floor(mousey/self.brain.board.squaresize)
-                col = self.brain.board.maplist[col]
-                row = self.brain.board.maplist[row]
-                if (col,row) == index:
-                    moveicon = self.images["moveiconHL"]
+
+            colcoords = self.maplist[index[0]]*self.squaresize
+            rowcoords = (7 - self.maplist[index[1]])*self.squaresize
+
+            if 0 < mousex-colcoords< self.squaresize and 0 < mousey-rowcoords < self.squaresize:
+                moveicon = self.images["moveiconHL"]
+
             self.screen.blit(moveicon,(x,y))
+    
+    def drawSidebar(self):
+        for btn in self.buttonlist:
+            self.screen.blit(btn.image,(self.screensize[1]+btn.x,btn.y))
 
     def update(self):
         self.drawBoard()
         self.drawLegalMoves()
         self.drawDynamicPieces()
+        self.drawSidebar()
 
         pg.display.update()
 
 class Memory:
     def __init__(self,brain):
         self.brain = brain
+        self.initBoard()
         self.movelist = []
-        self.gameID = "game01"
+        self.gameID = "newGame.txt"
         self.enpassant = []
         self.fiftyrule = 0
 
-    def loadGame(self,gameID):
+    def initBoard(self):
+        self.board = {}
+        for i in range(8):
+            for j in range(8):
+                self.board[(j, i)] = Square(
+                    (j, i), (None,None), None)
+    
+    def browseFiles(self, mode):
+        root = tki.Tk()
+        root.withdraw()  # use to hide tkinter window
+        
+        modedict = {
+            "save": filedialog.asksaveasfilename,
+            "load": filedialog.askopenfilename
+        }
+
+        filename = modedict[mode](initialdir=homedir+"/saves/",
+                                  initialfile=self.gameID,
+                                  title="Select a File",
+                                        filetypes=(("Text files", "*.txt*"), ("all files", "*.*")))
+        root.destroy()
+        return filename
+
+    def loadGame(self):
+        filename = self.browseFiles("load")
         try:
-            with open(homedir+f"/saves/{gameID}.txt", "r") as file:
+            with open(filename, "r") as file:
                 textsave = file.read()
         except FileNotFoundError:
             print("that game file does not exist.")
         else:
             self.movelist = textsave.split("\n")
-            self.readFromMemory(-1)
+            self.readFromMemory(len(self.movelist)-1)
+            self.gameID = filename.split("/")[-1]
+            print(self.gameID)
 
 
-    def saveGame(self, gameID):
-        with open(homedir+f"/saves/{gameID}.txt","w") as file:
-            gamesave = "\n".join(self.movelist)
-            file.write(gamesave)
-            print(f"Game saved as {gameID}.txt")
+    def saveGame(self):
+        filename = self.browseFiles("save")
+        try:
+            with open(filename,"w") as file:
+                gamesave = "\n".join(self.movelist)
+                file.write(gamesave)
+        except FileNotFoundError:
+            print("Invalid path.")
+        else:
+            self.gameID = filename.split("/")[-1]
+            print(f"Game saved as {self.gameID}")
     
     def writeToMemory(self,index):
         # turn State into fen
@@ -560,7 +687,7 @@ class Memory:
         self.movelist.append(fen)
 
     def readFromMemory(self,index):
-        if index < -1:
+        if index < 0:
             index = 0
             return
         elif index > len(self.movelist)-1:
@@ -573,16 +700,17 @@ class Memory:
         # fen = "RNB1KBNR/PPPP1PPP/8/4P3/8/8/pppppppp/rnbqkbnr b 0-1"
 
         #convert into array
-        self.FENToState(fen)
-        self.brain.updateLegalMovelist()
 
-        
+        self.FENToState(fen)
+        if self.brain.osquare:
+            self.brain.setFocus(None,False)
+        self.brain.updateLegalMovelist()
 
     def StateToFEN(self):
         fen = ""
 
         spacecounter = 0
-        for key, square in self.brain.board.squares.items():
+        for key, square in self.board.items():
             if not square.occupiedBy:
                 spacecounter += 1
             else:
@@ -620,11 +748,10 @@ class Memory:
 
         return fen
 
-
     def FENToState(self,fen):
         blackPieces = self.brain.black.initPieces
         whitePieces = self.brain.white.initPieces
-        for key,square in self.brain.board.squares.items():
+        for key,square in self.board.items():
             square.occupiedBy = None
 
         boardString, self.brain.activeColor, castlepart, enpassantpart, fiftyrule,  movecounter= fen.split(
@@ -639,10 +766,10 @@ class Memory:
             colindex = 0
             for symbol in row:
                 if symbol in ("k","q","r","n","b","p"):
-                    self.brain.board.squares[(colindex,rowindex)].occupiedBy = blackPieces[symbol]
+                    self.board[(colindex,rowindex)].occupiedBy = blackPieces[symbol]
 
                 elif symbol in ("K", "Q", "R", "N", "B", "P"):
-                    self.brain.board.squares[(
+                    self.board[(
                         colindex, rowindex)].occupiedBy = whitePieces[symbol.lower()]
 
                 elif symbol in("1","2","3","4","5","6","7","8"):
@@ -675,6 +802,7 @@ class Piece:
 class Player:
     def __init__(self,color):
         self.color = color
+        self.enemy = None
         self.castle = {
             "k": True,
             "q": True
@@ -704,58 +832,15 @@ class Square:
         else:
             self.focus = False
 
-class Board:
-    def __init__(self,size):
-        global WHITE, BLACK
-        self.indexsize = 50
-        self.size = size-self.indexsize
-        self.maplist = list(range(8))
-        self.COLORDICT = {
-            -1: WHITE,
-            1: BLACK
-        }
-        self.squaresize = math.floor((self.size)/8)
+class Button:
+    def __init__(self, x,y,w,h,image):
+        self.x = x
+        self.y = y
+        self.dx = x+w
+        self.dy = y+h
+        self.image = image
 
-        self.squares = {}
-        for i in range(8):
-            for j in range(8):
-                self.squares[(j,i)] = Square((j, i), (j*self.squaresize, i*self.squaresize), self.COLORDICT[(-1)**(i+j)])
-        self.initSquares = self.squares.copy()
-        self.rowindex = []
-        self.colindex = []
-        for i in range(8):
-            self.colindex.append(((i+.5)*self.squaresize,8*self.squaresize+.5*self.indexsize))
-            self.rowindex.append((8*self.squaresize+.5*self.indexsize, (i+.5)*self.squaresize))
-        self.rowindex.reverse()
-
-        for col in range(8):
-            for index in range(4):
-                y1 = self.maplist[index]
-                y2 = self.maplist[-index-1]
-
-                self.squares[(col, y1)].coords, self.squares[(col, y2)].coords = self.squares[(
-                    col, y2)].coords, self.squares[(col, y1)].coords
-
-    def flip(self):
-        self.colindex.reverse()
-        self.rowindex.reverse()
-        self.maplist.reverse()
-        for row in range(8):
-            for index in range(4):
-                x1 = self.maplist[index]
-                x2 = self.maplist[-index-1]
-
-                self.squares[(x1, row)].coords, self.squares[(x2, row)].coords = self.squares[(x2, row)].coords, self.squares[(x1, row)].coords
-        for col in range(8):
-            for index in range(4):
-                y1 = self.maplist[index]
-                y2 = self.maplist[-index-1]
-
-                self.squares[(col, y1)].coords, self.squares[(col, y2)].coords = self.squares[(
-                    col, y2)].coords, self.squares[(col, y1)].coords
-        
-
-WINDOW_SIZE = (1000, 900)
+WINDOW_SIZE = (1200, 900)
 
 
 chess = Main(WINDOW_SIZE)

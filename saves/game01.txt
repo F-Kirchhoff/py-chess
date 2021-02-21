@@ -1,7 +1,0 @@
-RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w 0-0
-RNBQKBNR/PPP1PPPP/8/3P4/8/8/pppppppp/rnbqkbnr b 0-1
-RNBQKBNR/PPP1PPPP/8/3P4/5p2/8/ppppp1pp/rnbqkbnr w 0-2
-RNBQKBNR/PPP2PPP/8/3PP3/5p2/8/ppppp1pp/rnbqkbnr b 0-3
-RNBQKBNR/PPP2PPP/8/3Pp3/8/8/ppppp1pp/rnbqkbnr w 0-4
-R1BQKBNR/PPP2PPP/2N5/3Pp3/8/8/ppppp1pp/rnbqkbnr b 0-5
-R1BQKBNR/PPP2PPP/2N5/3Pp3/3p4/8/ppp1p1pp/rnbqkbnr w 0-6
