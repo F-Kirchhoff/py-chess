@@ -11,17 +11,27 @@ homedir = str(pathlib.Path(__file__).parent.absolute())
 WHITE = "#F1F7ED"
 BLACK = "#9B9B97"
 FOCUS = "#97EDD3"
-MOUSEOVER = "#0E9594"
 BLACKCOVER = "#FF0000"
 WHITECOVER = "#FFFFFF"
 BOTHCOVER = "#888888"
+TRANSGREY = (100,100,100,200)
 
+
+def tadd(t1, t2):
+    if len(t1) != len(t2):
+        return None
+    ans = ()
+    for i in range(len(t1)):
+        ans += (t1[i]+t2[i],)
+    return ans
 
 class Main:
     def __init__(self, screensize):
         
         pg.init()
         self.clock = pg.time.Clock()
+        self.alive = True
+        self.winner = None
         
         self.osquare = None
         self.pickedPiece = None
@@ -36,24 +46,24 @@ class Main:
             "b": "w"
         }
         self.rulebook = Rules(self)
-        # self.board = Board(screensize[1])
+
         self.white = Player("w")
         self.black = Player("b")
-        self.white.enemy = self.black
-        self.black.enemy = self.white
         self.borw = {
             "w": self.white,
             "b": self.black
         }
+
         self.memory = Memory(self)
         self.initGame()
-        self.updateLegalMovelist()
         self.ui = UI(self, screensize)
 
+
     def initGame(self):
-        fen = "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 0"
-        self.memory.FENToState(fen)
+        initfen = "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 0"
+        self.memory.FENToState(initfen)
         self.memory.writeToMemory(self.movecounter)
+        self.updateLegalMovelist()
 
     def setFocus(self, square, toggleOn):
         if toggleOn:
@@ -74,6 +84,7 @@ class Main:
         else:
             square.occupiedBy = self.pickedPiece
             self.dragMode = False
+            
 
     def mouseGameControlsDown(self, xy):
         col = self.ui.maplist[math.floor(xy[0]/self.ui.squaresize)]
@@ -94,6 +105,7 @@ class Main:
                 self.checkSpecialRules(coords)
                 self.movePiece(self.osquare, True)
                 self.movePiece(tsquare, False)
+                pg.mixer.Sound.play(self.ui.chessMoveSound)
                 self.setFocus(self.osquare,False)
                 self.prepareNextMove()
             
@@ -110,6 +122,8 @@ class Main:
             if coords in self.legalMoves:
                 self.checkSpecialRules(coords)
                 self.movePiece(tsquare, False)
+                self.setFocus(self.osquare, False)
+                pg.mixer.Sound.play(self.ui.chessMoveSound)
                 self.prepareNextMove()
             else:
                 self.movePiece(self.osquare, False)   
@@ -127,10 +141,11 @@ class Main:
             self.memory.readFromMemory(self.movecounter+1)
         elif self.ui.saveBtn.x <= x <= self.ui.saveBtn.dx and self.ui.saveBtn.y <= y <= self.ui.saveBtn.dy:
             self.memory.saveGame()
-
+ 
     def checkSpecialRules(self,coords):
 
         # checking castle rules
+
         castle = self.borw[self.activeColor].castle
         if castle["q"] or castle["k"]:
             if self.pickedPiece.type == "k":
@@ -150,19 +165,6 @@ class Main:
                 castle["q"] = False
                 castle["k"] = False
 
-
-            elif self.pickedPiece.type == "r":
-                if self.activeColor == "w":
-                    if self.osquare.id == (0,0):
-                        castle["q"] = False
-                    elif self.osquare.id == (7,0):
-                        castle["k"] = False
-                if self.activeColor == "b":
-                    if self.osquare.id == (0, 7):
-                        castle["q"] = False
-                    elif self.osquare.id == (7, 7):
-                        castle["k"] = False
-            
         #checking Promotion
 
         if self.pickedPiece.type == "p" and coords[1] == 7:
@@ -194,37 +196,184 @@ class Main:
                              
     def prepareNextMove(self):
         self.pickedPiece = None
-        self.legalMoves = []
-        self.updateLegalMovelist()
         self.osquare = None
         self.activeColor = self.swtichColor[self.activeColor]
+        self.legalMoves = []
+        self.updateLegalMovelist()
         self.movecounter += 1
         self.memory.writeToMemory(self.movecounter)
+
+
     
     def updateLegalMovelist(self):
+
+        if self.white.castle["q"] and self.memory.board[(0, 0)].occupiedBy != self.white.initPieces["r"]:
+            self.white.castle["q"] = False
+        if self.white.castle["k"] and self.memory.board[(7,0)].occupiedBy != self.white.initPieces["r"]:
+            self.white.castle["k"] = False
+        if self.black.castle["q"] and self.memory.board[(0,7)].occupiedBy != self.black.initPieces["r"]:
+            self.black.castle["q"] = False
+        if self.black.castle["k"] and self.memory.board[(7,7)].occupiedBy != self.black.initPieces["r"]:
+            self.black.castle["k"] = False
+
+        kingIDs = {
+            "b":None,
+            "w":None
+            }
+
         self.white.check = False
         self.black.check = False
+        movecount = 0
+
         for key, square in self.memory.board.items():
             square.covered["b"] = False
             square.covered["w"] = False
                     
         for key, square in self.memory.board.items():
-                coverlist = self.rulebook.getMoves( square, "cover")
                 if square.occupiedBy:
+                    if square.occupiedBy.type == "k":
+                        kingIDs[square.occupiedBy.color] = key
+
+                    coverlist = self.rulebook.getMoves( square, "cover")
                     color = square.occupiedBy.color
                     for squareID in coverlist:
                         self.memory.board[squareID].covered[color] = True
+
                         if self.memory.board[squareID].occupiedBy == self.borw[self.swtichColor[color]].initPieces["k"]:
                             self.borw[self.swtichColor[color]].check = True
                             print("check!")
 
         for key, square in self.memory.board.items():
-            self.legalMovelist[key] = self.rulebook.getMoves(
-                    square,"moves")
+            if square.occupiedBy and square.occupiedBy.color == self.activeColor:
+                validMoves = []
+                candidates = self.rulebook.getMoves(
+                        square,"moves")
+                
+                # check if this move would cause a check
+                kingsquare = kingIDs[self.activeColor]
+                for move in candidates:
+                    if square.occupiedBy.type == "k":
+                        kingsquare = move
+                    
+                    testboard = self.memory.board.copy()
+                    # making the candidate move with the piece on the testboard
+                    testboard[move] = Square(
+                        testboard[move].id)
+                    testboard[move].occupiedBy = square.occupiedBy
+                    testboard[key] = Square(
+                        testboard[key].id)
+                    testboard[key].occupiedBy = None
+
+                    #testing if now our own king is in check:
+                    if not self.isInCheck(testboard,kingsquare):
+                        validMoves.append(move)
+                    
+                
+                self.legalMovelist[key] = validMoves
+                movecount += len(validMoves)
+    
+        if movecount == 0:
+            self.alive = False
+            if self.borw[self.activeColor].check:
+                self.winner = self.swtichColor[self.activeColor]
+            else:
+                self.winner = "bw"
+        else:
+            self.alive = True
+        
+        if self.memory.fiftyrule >= 50:
+            self.alive = False
+            self.winner = "bw"
+
+
+    def isInCheck(self,squares,kingsquare):
+        # checking the files:
+        Check_DIR = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        for direction in Check_DIR:
+            index = tadd(kingsquare, direction)
+            while (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
+                
+                currentsquare = squares[index]
+
+                if currentsquare.occupiedBy:
+                    if currentsquare.occupiedBy.color == self.swtichColor[self.activeColor] and currentsquare.occupiedBy.type in ("r","q"):
+                        return True
+                    else:
+                        break
+
+                index = tadd(index, direction)
+
+        
+        #Checking Diagonales
+        Check_DIR = [(1, 1), (-1, 1), (1, -1), (-1, -1)]
+        for direction in Check_DIR:
+            index = tadd(kingsquare, direction)
+            while (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
+
+                currentsquare = squares[index]
+
+                if currentsquare.occupiedBy:
+                    if currentsquare.occupiedBy.color == self.swtichColor[self.activeColor] and currentsquare.occupiedBy.type in ("b","q"):
+                        return True
+                    else:
+                        break
+
+                index = tadd(index, direction)
+        
+        #checking knightsquares
+        Check_DIR = [(2, 1), (2, -1), (-2, 1), (-2, -1),
+                (1, 2), (1, -2), (-1, 2), (-1, -2)]
+
+        for direction in Check_DIR:
+
+            index = tadd(kingsquare, direction)
+            if (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
+
+                currentsquare = squares[index]
+
+                if currentsquare.occupiedBy:
+                        if currentsquare.occupiedBy.color == self.swtichColor[self.activeColor] and currentsquare.occupiedBy.type in ("n"):
+                            return True
+                
+        #checking pawnsquares:
+        heading = -1 + ord(self.activeColor)%2*2
+        
+        Check_DIR = [(1,heading),(-1,heading)]
+
+        for direction in Check_DIR:
+
+            index = tadd(kingsquare, direction)
+            if (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
+
+                currentsquare = squares[index]
+
+                if currentsquare.occupiedBy:
+                        if currentsquare.occupiedBy.color == self.swtichColor[self.activeColor] and currentsquare.occupiedBy.type in ("p"):
+                            return True
+
+        #checking kingsquares:
+        Check_DIR = [(1, 1), (-1, 1), (1, -1), (-1, -1),
+        (1, 0), (-1, 0), (0, 1), (0, -1)]
+
+        for direction in Check_DIR:
+            index = tadd(kingsquare, direction)
+            if (0 <= index[0] <= 7) and (0 <= index[1] <= 7):
+
+                currentsquare = squares[index]
+
+                if currentsquare.occupiedBy:
+                        if currentsquare.occupiedBy.color == self.swtichColor[self.activeColor] and currentsquare.occupiedBy.type in ("k"):
+                            return True
+        
+        #if nothing is True:
+        return False
+
+
+
 
     def mainloop(self):
         while True:
-            if self.dragMode and any([x > self.ui.boardsize-6 for x in pg.mouse.get_pos()]):
+            if self.dragMode and any([x > self.ui.boardsize-6 or x < 6 for x in pg.mouse.get_pos()]):
                 self.movePiece(self.osquare,False)
             for event in pg.event.get():
                 if event.type == pg.QUIT:
@@ -243,14 +392,14 @@ class Main:
                         self.ui.displaycover = not self.ui.displaycover
 
                 elif event.type == pg.MOUSEBUTTONDOWN:
-                    if all(0 < x < self.ui.boardsize-5 for x in event.pos):
+                    if all(0 < x < self.ui.boardsize-5 for x in event.pos) and self.alive:
                             self.mouseGameControlsDown(event.pos)
-        
+
                     elif (self.ui.boardsize < event.pos[0] < self.ui.screensize[0]):
                         self.mouseSidebarControls(event.pos)
                 
                 elif event.type == pg.MOUSEBUTTONUP:
-                    if all(0 < x < self.ui.boardsize-5 for x in event.pos):
+                    if all(0 < x < self.ui.boardsize-5 for x in event.pos) and self.alive:
                             self.mouseGameControlsUp(event.pos)
 
             self.ui.update()
@@ -262,13 +411,7 @@ class Rules:
 
     def getMoves(self,square,mode):
 
-        def tadd(t1, t2):
-            if len(t1) != len(t2):
-                return None
-            ans = ()
-            for i in range(len(t1)):
-                ans += (t1[i]+t2[i],)
-            return ans
+        
 
 
         movelist = []
@@ -455,14 +598,17 @@ class UI:
 
         pg.font.init()
         self.myfont = pg.font.SysFont('Arial', 20)
-
+        self.alertfont = pg.font.SysFont('Arial', 60)
 
 
         pg.display.set_caption("OpenChess")
         self.screen = pg.display.set_mode(self.screensize, 0, 32)
+        
         self.initBoardUI()
         self.initSidebar()
         self.initImages()
+
+        self.chessMoveSound = pg.mixer.Sound(homedir+"/sounds/chessMove.wav")
 
     def initBoardUI(self):
         self.indexsize = 50
@@ -485,7 +631,10 @@ class UI:
                 ((i+.5)*self.squaresize, 8*self.squaresize+.5*self.indexsize))
             self.rowindex.append(
                 (8*self.squaresize+.5*self.indexsize, (7.5-i)*self.squaresize))
-        
+        self.upperlayer = pg.Surface(
+            (self.screensize[1], self.screensize[1]), pg.SRCALPHA)
+        pg.draw.rect(self.upperlayer, TRANSGREY, self.upperlayer.get_rect())
+
     def initSidebar(self):
         self.sidebarwidth = self.screensize[0]-self.screensize[1]
         self.btnsize = 50
@@ -528,7 +677,6 @@ class UI:
         moveiconHL = pg.image.load(homedir+f"/images/moveiconHL.png")
         self.images["moveiconHL"] = pg.transform.scale(
             moveiconHL, (self.squaresize, self.squaresize))
-        
 
     def drawBoard(self):
         board = self.brain.memory.board
@@ -561,6 +709,18 @@ class UI:
 
             text = self.myfont.render(str(i+1), False, WHITE)
             self.screen.blit(text, text.get_rect(center=(self.rowindex[i])))
+
+        if not self.brain.alive:
+            self.screen.blit(self.upperlayer,(0,0))
+            if self.brain.winner == "w":
+                endtext = "Check Mate! White wins."
+            elif self.brain.winner == "b":
+                endtext = "Check Mate! Black wins."
+            elif self.brain.winner == "bw":
+                endtext = "Remis. It's a draw."
+            text = self.alertfont.render(endtext, False, WHITE)
+            self.screen.blit(text, text.get_rect(center=self.upperlayer.get_rect().center))
+            
     
     def flip(self):
         self.colindex.reverse()
@@ -631,7 +791,7 @@ class Memory:
         for i in range(8):
             for j in range(8):
                 self.board[(j, i)] = Square(
-                    (j, i), (None,None), None)
+                    (j, i))
     
     def browseFiles(self, mode):
         root = tki.Tk()
@@ -697,9 +857,6 @@ class Memory:
         #read position from memory
         fen = self.movelist[index]
 
-        # fen = "RNB1KBNR/PPPP1PPP/8/4P3/8/8/pppppppp/rnbqkbnr b 0-1"
-
-        #convert into array
 
         self.FENToState(fen)
         if self.brain.osquare:
@@ -802,22 +959,20 @@ class Piece:
 class Player:
     def __init__(self,color):
         self.color = color
-        self.enemy = None
         self.castle = {
             "k": True,
             "q": True
         }
         self.check = False
+        self.movecount = 0
         self.initPieces = {}
         for piece in ("k", "q", "r", "n", "b", "p"):
             newpiece = Piece(color, piece)
             self.initPieces[piece] = newpiece
 
 class Square:
-    def __init__(self,xy,coords,color):
+    def __init__(self,xy):
         self.id = xy
-        self.coords = coords
-        self.color = color
         self.occupiedBy = None
         self.focus = False
         self.covered = {
